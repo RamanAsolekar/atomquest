@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime / data volumes
+data/
+recordings/
+uploads/
+tmp/
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+.nyc_output/
+
+# Editor
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+
+# Prisma
+apps/backend/prisma/*.db
+
+# Docker
+*.local.yml
+
+# Original problem statement (kept locally, not committed)
+6a2bdcd474b89_*.docx

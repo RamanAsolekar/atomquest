@@ -1,0 +1,46 @@
+# Media SFU. Uses hostNetwork so mediasoup's dynamic RTC UDP/TCP port range is
+# directly reachable (a Service can't expose an arbitrary port range well).
+# Each pod pins to a node; sessions are sticky to a media pod by their room.
+# MEDIA_ANNOUNCED_IP is set from the node's IP via the downward API.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: media
+  namespace: atom
+  labels: { app: media }
+spec:
+  serviceName: media
+  replicas: 2
+  selector: { matchLabels: { app: media } }
+  template:
+    metadata:
+      labels: { app: media }
+      annotations: { prometheus.io/scrape: "true", prometheus.io/port: "5000", prometheus.io/path: "/metrics" }
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: { matchLabels: { app: media } }
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: media
+          image: ghcr.io/atom/atom-media:latest
+          envFrom: [{ configMapRef: { name: atom-config } }, { secretRef: { name: atom-secrets } }]
+          env:
+            - name: MEDIA_ANNOUNCED_IP
+              valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+            - name: API_INTERNAL_URL
+              value: "http://backend.atom.svc.cluster.local:4000"
+          ports:
+            - { containerPort: 5000, name: signaling }
+          readinessProbe: { httpGet: { path: /health, port: 5000 }, initialDelaySeconds: 15 }
+          resources: { requests: { cpu: "1", memory: 1Gi }, limits: { cpu: "2", memory: 2Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: media, namespace: atom }
+spec:
+  selector: { app: media }
+  ports: [{ port: 5000, targetPort: 5000 }]

@@ -1,0 +1,88 @@
+# In-cluster Postgres / Redis / MinIO for self-contained deploys. In production
+# prefer managed RDS / ElastiCache / S3 and delete these — just repoint the
+# config/secret URLs. StatefulSets keep stable identity + persistent volumes.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: atom
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          envFrom:
+            - secretRef: { name: atom-secrets }
+          env:
+            - { name: POSTGRES_USER, valueFrom: { secretKeyRef: { name: atom-secrets, key: POSTGRES_USER } } }
+            - { name: POSTGRES_PASSWORD, valueFrom: { secretKeyRef: { name: atom-secrets, key: POSTGRES_PASSWORD } } }
+            - { name: POSTGRES_DB, valueFrom: { secretKeyRef: { name: atom-secrets, key: POSTGRES_DB } } }
+          ports: [{ containerPort: 5432 }]
+          volumeMounts: [{ name: pgdata, mountPath: /var/lib/postgresql/data }]
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "atom"] }
+            initialDelaySeconds: 5
+  volumeClaimTemplates:
+    - metadata: { name: pgdata }
+      spec: { accessModes: ["ReadWriteOnce"], resources: { requests: { storage: 10Gi } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: atom }
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis, namespace: atom }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args: ["redis-server", "--appendonly", "yes"]
+          ports: [{ containerPort: 6379 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: atom }
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: minio, namespace: atom }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: minio } }
+  template:
+    metadata: { labels: { app: minio } }
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - { name: MINIO_ROOT_USER, valueFrom: { secretKeyRef: { name: atom-secrets, key: S3_ACCESS_KEY } } }
+            - { name: MINIO_ROOT_PASSWORD, valueFrom: { secretKeyRef: { name: atom-secrets, key: S3_SECRET_KEY } } }
+          ports: [{ containerPort: 9000 }, { containerPort: 9001 }]
+          volumeMounts: [{ name: miniodata, mountPath: /data }]
+      volumes: [{ name: miniodata, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: minio, namespace: atom }
+spec:
+  selector: { app: minio }
+  ports: [{ name: api, port: 9000, targetPort: 9000 }, { name: console, port: 9001, targetPort: 9001 }]

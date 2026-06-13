@@ -1,0 +1,45 @@
+[project]
+name = "atom-backend"
+version = "1.0.0"
+description = "Atom Support Vision API — FastAPI backend (auth, sessions, chat, recordings, analytics, live config)."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "pydantic==2.10.4",
+  "pydantic-settings==2.7.0",
+  "sqlalchemy[asyncio]==2.0.36",
+  "asyncpg==0.30.0",
+  "alembic==1.14.0",
+  "greenlet==3.1.1",
+  "python-socketio==5.12.0",
+  "redis==5.2.1",
+  "pyjwt==2.10.1",
+  "passlib[bcrypt]==1.7.4",
+  "bcrypt==4.2.1",
+  "python-multipart==0.0.20",
+  "aioboto3==13.3.0",
+  "httpx==0.28.1",
+  "prometheus-client==0.21.1",
+  "structlog==24.4.0",
+  "opentelemetry-sdk==1.29.0",
+  "opentelemetry-exporter-otlp-proto-http==1.29.0",
+  "opentelemetry-instrumentation-fastapi==0.50b0",
+  "opentelemetry-instrumentation-sqlalchemy==0.50b0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==8.3.4",
+  "pytest-asyncio==0.25.0",
+  "aiosqlite==0.20.0",
+  "ruff==0.8.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

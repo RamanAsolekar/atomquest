@@ -1,0 +1,80 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "Atom Support Vision — Overview",
+  "uid": "atom-overview",
+  "tags": ["atom", "support", "webrtc"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "type": "stat", "title": "Active Sessions", "id": 1,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "targets": [{ "expr": "atom_active_sessions", "legendFormat": "active" }]
+    },
+    {
+      "type": "stat", "title": "Connected Participants", "id": 2,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "atom_connected_participants" }]
+    },
+    {
+      "type": "stat", "title": "Media Peers", "id": 3,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "targets": [{ "expr": "atom_media_peers" }]
+    },
+    {
+      "type": "stat", "title": "Active Recordings", "id": 4,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "targets": [{ "expr": "atom_media_recordings_active" }]
+    },
+    {
+      "type": "timeseries", "title": "Sessions created / ended", "id": 5,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "rate(atom_sessions_created_total[5m])", "legendFormat": "created/s" },
+        { "expr": "sum(rate(atom_sessions_ended_total[5m]))", "legendFormat": "ended/s" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Media producers / consumers", "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [
+        { "expr": "atom_media_producers", "legendFormat": "producers" },
+        { "expr": "atom_media_consumers", "legendFormat": "consumers" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "HTTP error rate (4xx / 5xx)", "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum(rate(atom_errors_total{type=\"http_4xx\"}[5m]))", "legendFormat": "4xx/s" },
+        { "expr": "sum(rate(atom_errors_total{type=\"http_5xx\"}[5m]))", "legendFormat": "5xx/s" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "HTTP p95 latency", "id": 8,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(atom_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Reconnects & transport errors", "id": 9,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "targets": [
+        { "expr": "rate(atom_reconnects_total[5m])", "legendFormat": "reconnects/s" },
+        { "expr": "rate(atom_media_transport_errors_total[5m])", "legendFormat": "transport errors/s" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Chat messages", "id": 10,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "targets": [{ "expr": "rate(atom_messages_total[5m])", "legendFormat": "msgs/s" }]
+    }
+  ]
+}

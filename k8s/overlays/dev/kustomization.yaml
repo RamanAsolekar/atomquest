@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: atom
+resources:
+  - ../../base
+
+# Dev: single replicas, smaller footprint, tiny Whisper model.
+patches:
+  - target: { kind: Deployment, name: backend }
+    patch: |
+      - { op: replace, path: /spec/replicas, value: 1 }
+  - target: { kind: Deployment, name: web }
+    patch: |
+      - { op: replace, path: /spec/replicas, value: 1 }
+  - target: { kind: StatefulSet, name: media }
+    patch: |
+      - { op: replace, path: /spec/replicas, value: 1 }
+
+configMapGenerator:
+  - name: atom-config
+    behavior: merge
+    literals:
+      - ENV=development
+      - CORS_ORIGIN=http://localhost:3000,http://atom.local
+      - WEB_URL=http://atom.local
+      - WHISPER_MODEL=tiny.en

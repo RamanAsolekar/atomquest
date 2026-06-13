@@ -1,0 +1,37 @@
+{
+  "name": "atom-support-vision",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Atom Support Vision — self-hosted real-time video customer-support platform (AtomQuest Hackathon 1.0 Finale)",
+  "license": "MIT",
+  "workspaces": [
+    "apps/web",
+    "apps/media",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "concurrently -n web,api,media -c blue,green,magenta \"npm:dev:web\" \"npm:dev:api\" \"npm:dev:media\"",
+    "dev:web": "npm -w @atom/web run dev",
+    "dev:api": "cd apps/backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 4000",
+    "dev:media": "npm -w @atom/media run start:dev",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
+    "db:migrate": "cd apps/backend && alembic upgrade head",
+    "db:seed": "cd apps/backend && python -m app.db.seed",
+    "docker:up": "docker compose -f docker-compose.yml up -d --build",
+    "docker:down": "docker compose -f docker-compose.yml down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "@playwright/test": "^1.49.1"
+  }
+}

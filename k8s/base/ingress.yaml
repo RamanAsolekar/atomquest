@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: atom
+  namespace: atom
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-body-size: "30m"
+    # sticky sessions for SSE / socket.io
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: atom.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend: { service: { name: backend, port: { number: 4000 } } }
+          - path: /socket.io
+            pathType: Prefix
+            backend: { service: { name: backend, port: { number: 4000 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: web, port: { number: 3000 } } }

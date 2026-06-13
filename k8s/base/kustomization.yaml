@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: atom
+resources:
+  - namespace.yaml
+  - config.yaml
+  - datastores.yaml
+  - backend.yaml
+  - web.yaml
+  - media.yaml
+  - ingress.yaml
+  - observability.yaml
+
+images:
+  - name: ghcr.io/atom/atom-backend
+    newTag: latest
+  - name: ghcr.io/atom/atom-web
+    newTag: latest
+  - name: ghcr.io/atom/atom-media
+    newTag: latest
