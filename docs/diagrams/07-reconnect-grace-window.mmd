@@ -1,0 +1,19 @@
+﻿sequenceDiagram
+  participant B as Browser
+  participant RT as Backend realtime gateway
+  participant Redis as Redis
+  participant Peers as Other participants
+
+  B--xRT: Network or tab disconnect
+  RT->>Redis: Set grace key for 15 seconds
+  RT->>RT: Mark participant reconnecting
+  Note over RT,Peers: Peers are not immediately told the user left
+  alt Browser returns in time
+    B->>RT: Reconnect with same session token
+    RT->>Redis: Clear grace key
+    RT->>Peers: Participant restored
+  else Grace expires
+    Redis-->>RT: Key expired
+    RT->>Peers: Participant left
+    RT->>RT: Clean room state
+  end

@@ -11,6 +11,54 @@ import {
 } from '@atom/shared';
 import { env } from './config';
 
+/**
+ * Where the browser connects for SFU signaling — designed like Zoom/Google Meet:
+ * the participant only ever knows ONE origin (the page they loaded). Media
+ * signaling rides the SAME origin over a dedicated socket.io engine path
+ * (`/rtc/`), which nginx (or the Next.js dev proxy) routes to the media server.
+ *
+ * Why `/rtc/` and not `/sfu/`: the SFU socket.io *namespace* is `/sfu`. Using a
+ * DIFFERENT string for the engine path avoids any prefix collision between the
+ * HTTP path and the namespace inside socket.io-client's URL parser — the exact
+ * ambiguity that broke earlier attempts.
+ *
+ *   browser → ${origin}            (namespace `/sfu`)
+ *           → engine path `/rtc/`  → nginx strips `/rtc/` → media `/socket.io/`
+ *
+ * This makes invite links work for ANY device: a remote participant opens the
+ * same host they were sent, and media flows over that one origin. No port 5000,
+ * no hardcoded localhost.
+ *
+ * Dev escape hatch: set NEXT_PUBLIC_MEDIA_WS_URL=http://localhost:5000 to talk
+ * straight to the media server on its default `/socket.io/` path.
+ */
+function resolveMediaEndpoint(): { origin: string; path: string } {
+  const DEFAULT_PATH = '/socket.io/';
+  const SAME_ORIGIN_PATH = '/rtc/';
+
+  const configured = env.mediaWsUrl?.trim();
+
+  // SSR — never connects, but keep a sane fallback.
+  if (typeof window === 'undefined') {
+    return { origin: configured || 'http://localhost:5000', path: DEFAULT_PATH };
+  }
+
+  // Explicit direct endpoint on a different host:port (dev without nginx).
+  if (configured) {
+    try {
+      const u = new URL(configured);
+      if (u.host !== window.location.host) {
+        return { origin: configured.replace(/\/$/, ''), path: DEFAULT_PATH };
+      }
+    } catch {
+      /* malformed → fall through to same-origin */
+    }
+  }
+
+  // Same-origin (Zoom-style): media rides this page's origin via the /rtc/ path.
+  return { origin: window.location.origin, path: SAME_ORIGIN_PATH };
+}
+
 export interface RemoteStream {
   peerId: string;
   displayName: string;
@@ -39,6 +87,9 @@ export class MediaClient {
   private recvTransport: types.Transport | null = null;
   private producers = new Map<AppMediaKind, types.Producer>();
   private consumers = new Map<string, types.Consumer>();
+  // STUN/TURN servers supplied by the SFU at JOIN — used by both transports so
+  // the browser can traverse NAT/firewalls (how Meet reaches restricted nets).
+  private iceServers: RTCIceServer[] = [];
 
   constructor(
     private sessionId: string,
@@ -48,18 +99,47 @@ export class MediaClient {
 
   async connect(): Promise<void> {
     this.events.onConnectionStateChange('connecting');
-    // Polling-first with automatic upgrade to WebSocket is the most reliable
-    // handshake across browsers/proxies. Reconnection stays on so a transient
-    // network blip doesn't kill the call.
-    const origin = env.mediaWsUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000');
+
+    const { origin, path } = resolveMediaEndpoint();
+    // `origin` is a BARE origin (scheme://host[:port], no path) and SFU_NAMESPACE
+    // ('/sfu') is the socket.io namespace; `path` is the engine.io HTTP path.
+    // Keeping these three explicitly separate is what removes the URL-parsing
+    // ambiguity. Polling-first then auto-upgrade to WebSocket = most proxy-safe.
+    // eslint-disable-next-line no-console
+    console.info('[media] connecting', { origin, namespace: SFU_NAMESPACE, path });
     this.socket = io(`${origin}${SFU_NAMESPACE}`, {
-      path: '/sfu/',
+      path,
+      // Polling is proven to connect through nginx in ~50ms. We let socket.io
+      // start on polling and silently UPGRADE to websocket in the background;
+      // the `connect` event fires on polling, so a flaky WS upgrade can never
+      // block joining the room. `upgrade: true` keeps the WS optimisation.
       transports: ['polling', 'websocket'],
+      upgrade: true,
+      rememberUpgrade: false,
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      timeout: 15000,
-      withCredentials: true,
+      timeout: 20000,
+      // Same-origin → no credentials needed; sending them can trip strict CORS.
+      withCredentials: false,
+      // Surface transport errors instead of silently retrying forever.
+      autoConnect: true,
+    });
+
+    // Log low-level engine errors that don't surface as connect_error.
+    this.socket.io.on('error', (e: any) => console.error('[media] manager error', e?.message ?? e));
+    this.socket.on('connect', () => console.info('[media] connected via', (this.socket as any)?.io?.engine?.transport?.name));
+
+    // Deep engine diagnostics so a silent timeout is never a dead end: log the
+    // initial transport, every upgrade attempt, and any engine-level close. This
+    // is what tells us WHERE a browser stalls (polling open vs. WS upgrade vs.
+    // namespace) when connect_error never fires.
+    this.socket.io.on('open', () => {
+      const eng = (this.socket as any)?.io?.engine;
+      console.info('[media] engine open — transport:', eng?.transport?.name);
+      eng?.on('upgrade', (t: any) => console.info('[media] engine upgraded to', t?.name));
+      eng?.on('upgradeError', (e: any) => console.error('[media] engine upgradeError', e?.message ?? e));
+      eng?.on('close', (reason: any) => console.error('[media] engine close —', reason));
     });
 
     this.socket.on('disconnect', () => this.events.onConnectionStateChange('disconnected'));
@@ -81,9 +161,9 @@ export class MediaClient {
       let lastErr = '';
       const timeout = setTimeout(() => {
         this.socket?.removeAllListeners('connect_error');
-        const origin = env.mediaWsUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5000');
+        const { origin, path } = resolveMediaEndpoint();
         // eslint-disable-next-line no-console
-        console.error('[media] connect timeout', { url: `${origin}${SFU_NAMESPACE}`, lastErr });
+        console.error('[media] connect timeout', { origin, path, namespace: SFU_NAMESPACE, lastErr });
         reject(new Error(`Cannot reach the media server at ${origin}. ${lastErr ? `(${lastErr})` : 'Check that it is running on port 5000.'}`));
       }, 15000);
 
@@ -111,6 +191,7 @@ export class MediaClient {
         clearTimeout(timeout);
         if (res?.error) return reject(new Error(res.error));
         try {
+          this.iceServers = res.iceServers ?? [];
           this.device = new Device();
           await this.device.load({ routerRtpCapabilities: res.routerRtpCapabilities });
           await this.createTransports();
@@ -138,7 +219,7 @@ export class MediaClient {
   private async createTransports() {
     // send
     const sendParams = await this.request(SfuClientEvents.CREATE_TRANSPORT, { direction: 'send' });
-    this.sendTransport = this.device!.createSendTransport(sendParams);
+    this.sendTransport = this.device!.createSendTransport({ ...sendParams, iceServers: this.iceServers });
     this.sendTransport.on('connect', ({ dtlsParameters }, cb, errback) => {
       this.request(SfuClientEvents.CONNECT_TRANSPORT, { transportId: this.sendTransport!.id, dtlsParameters })
         .then(() => cb())
@@ -160,7 +241,7 @@ export class MediaClient {
 
     // recv
     const recvParams = await this.request(SfuClientEvents.CREATE_TRANSPORT, { direction: 'recv' });
-    this.recvTransport = this.device!.createRecvTransport(recvParams);
+    this.recvTransport = this.device!.createRecvTransport({ ...recvParams, iceServers: this.iceServers });
     this.recvTransport.on('connect', ({ dtlsParameters }, cb, errback) => {
       this.request(SfuClientEvents.CONNECT_TRANSPORT, { transportId: this.recvTransport!.id, dtlsParameters })
         .then(() => cb())

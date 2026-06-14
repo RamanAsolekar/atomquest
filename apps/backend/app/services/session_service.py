@@ -164,7 +164,27 @@ async def assert_can_end(db: AsyncSession, session_id: str, user) -> Session:
 
 
 # ---------------------------------------------------------------- invites
-async def create_invite(db: AsyncSession, session_id: str, customer_name: str | None, ttl: int | None) -> dict:
+def _public_base_url(request) -> str:
+    """The origin to build shareable links from.
+
+    Prefer the origin the agent actually reached us through (honouring the
+    X-Forwarded-* headers nginx sets) so the invite link always points at the
+    same host the agent is using — the Google-Meet behaviour where the link
+    "just works" regardless of how the deployment is addressed. Falls back to the
+    configured WEB_URL when no request context is available.
+    """
+    from app.core.config import settings
+
+    if request is not None:
+        fwd_proto = request.headers.get("x-forwarded-proto")
+        fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if fwd_host:
+            scheme = fwd_proto or request.url.scheme
+            return f"{scheme}://{fwd_host}".rstrip("/")
+    return settings.web_url.rstrip("/")
+
+
+async def create_invite(db: AsyncSession, session_id: str, customer_name: str | None, ttl: int | None, request=None) -> dict:
     s = (await db.execute(select(Session).where(Session.id == session_id))).scalar_one_or_none()
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found")
@@ -176,9 +196,8 @@ async def create_invite(db: AsyncSession, session_id: str, customer_name: str | 
     db.add(Invite(session_id=session_id, token_hash=sha256(token), customer_name=customer_name,
                   expires_at=datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc)))
     await db.flush()
-    from app.core.config import settings
     return {
-        "token": token, "url": f"{settings.web_url}/join/{token}",
+        "token": token, "url": f"{_public_base_url(request)}/join/{token}",
         "sessionId": session_id, "sessionCode": s.code,
         "expiresAt": datetime.fromtimestamp(expires_ms / 1000, tz=timezone.utc),
     }

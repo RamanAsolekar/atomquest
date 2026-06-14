@@ -56,3 +56,9 @@ apps/backend/prisma/*.db
 
 # Original problem statement (kept locally, not committed)
 6a2bdcd474b89_*.docx
+
+# Temporary connectivity-diagnostic scripts (local only)
+diagnose*.ps1
+check-*.ps1
+test-browser-conn.js
+.compose-up.log

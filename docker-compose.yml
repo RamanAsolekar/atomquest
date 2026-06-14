@@ -93,7 +93,18 @@ services:
     environment:
       NODE_ENV: production
       MEDIA_PORT: 5000
-      MEDIA_ANNOUNCED_IP: ${MEDIA_ANNOUNCED_IP:-127.0.0.1}
+      # The address the SFU announces to browsers. Empty → the media server
+      # auto-detects the host LAN IP (works on one network) and warns. For
+      # internet joins set MEDIA_ANNOUNCED_IP to the server's PUBLIC IP.
+      MEDIA_ANNOUNCED_IP: ${MEDIA_ANNOUNCED_IP:-}
+      PUBLIC_HOST: ${PUBLIC_HOST:-}
+      # STUN/TURN handed to browsers for NAT traversal. STUN covers most home
+      # routers; the bundled coturn (TURN_URL) relays media for symmetric NAT /
+      # strict firewalls — required for reliable internet joins.
+      STUN_URL: ${STUN_URL:-stun:stun.l.google.com:19302}
+      TURN_URL: ${TURN_URL:-}
+      TURN_USER: ${TURN_USER:-atom}
+      TURN_PASS: ${TURN_PASS:-atom_turn_secret}
       MEDIASOUP_MIN_PORT: ${MEDIASOUP_MIN_PORT:-40000}
       MEDIASOUP_MAX_PORT: ${MEDIASOUP_MAX_PORT:-40100}
       MEDIA_NUM_WORKERS: ${MEDIA_NUM_WORKERS:-2}
@@ -118,9 +129,17 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
-        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-http://localhost:4000}
-        NEXT_PUBLIC_MEDIA_WS_URL: ${NEXT_PUBLIC_MEDIA_WS_URL:-http://localhost:5000}
+        # IMPORTANT: NEXT_PUBLIC_* are inlined into the BROWSER bundle at build
+        # time. They must NEVER be a Docker-internal hostname (e.g. media:5000) —
+        # a browser cannot resolve that, which is what produced "Cannot reach the
+        # media server". We leave them EMPTY so the browser uses same-origin:
+        # every /api, /socket.io/ and /rtc/ request rides the page's own origin
+        # and nginx routes it. SSR (inside the container) uses the *_INTERNAL_URL
+        # runtime env below instead. This is the Google-Meet model: the
+        # participant only ever knows the one URL they opened.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+        NEXT_PUBLIC_MEDIA_WS_URL: ${NEXT_PUBLIC_MEDIA_WS_URL:-}
     restart: unless-stopped
     depends_on:
       - backend
@@ -131,6 +150,10 @@ services:
       # 0.0.0.0 makes it listen on all interfaces including loopback.
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
+      # Same-origin rewrite targets (used by next.config rewrites at runtime), so
+      # opening the app on :3000 directly also proxies /api, /socket.io, /sfu.
+      BACKEND_INTERNAL_URL: http://backend:4000
+      MEDIA_INTERNAL_URL: http://media:5000
     ports:
       - '3000:3000'
 
@@ -145,6 +168,31 @@ services:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - '80:80'
+
+  # ---- TURN relay (NAT traversal) ----
+  # coturn relays WebRTC media for participants behind symmetric NAT / strict
+  # firewalls — the same fallback Google Meet uses so calls connect from any
+  # network. Disabled by default (TURN_URL empty); to enable, set in .env:
+  #   TURN_URL=turn:<PUBLIC_IP>:3478
+  #   TURN_REALM=<your-host>   TURN_USER=atom   TURN_PASS=<secret>
+  # and ensure UDP/TCP 3478 + the relay range 49160-49200 are reachable.
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    restart: unless-stopped
+    network_mode: host # TURN needs the host IP for relay candidates
+    command: >-
+      -n
+      --fingerprint
+      --lt-cred-mech
+      --realm=${TURN_REALM:-atom.local}
+      --user=${TURN_USER:-atom}:${TURN_PASS:-atom_turn_secret}
+      --listening-port=3478
+      --min-port=49160
+      --max-port=49200
+      --no-cli
+      --no-tls
+      --no-dtls
+      ${MEDIA_ANNOUNCED_IP:+--external-ip=${MEDIA_ANNOUNCED_IP}}
 
   # ---- Observability ----
   prometheus:

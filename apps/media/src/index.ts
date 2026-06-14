@@ -38,10 +38,20 @@ async function main() {
   });
 
   const httpServer = createServer(app);
+  // Default socket.io path (/socket.io/). Browsers reach the SFU either directly
+  // (dev: http://localhost:5000) or through nginx at /sfu/ which rewrites the
+  // prefix back to /socket.io/ (prod: same-origin). The SFU lives on the /sfu
+  // *namespace* — that is independent of the HTTP path.
+  // When CORS_ORIGINS is set, only those origins may connect directly; otherwise
+  // reflect the request origin (dev). credentials:false — same-origin proxying
+  // (the production path) sends no cookies, and reflecting an origin WITH
+  // credentials is the combination strict browsers reject.
   const io = new Server(httpServer, {
-    cors: { origin: true, credentials: true },
+    cors: {
+      origin: config.corsOrigins.length ? config.corsOrigins : true,
+      credentials: false,
+    },
     maxHttpBufferSize: 1e6,
-    path: '/sfu/',
   });
   attachSignaling(io);
 

@@ -13,12 +13,22 @@ export class RealtimeClient {
     // the socket.io handshake goes to the current host and nginx proxies /socket.io/.
     const origin = env.wsUrl || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:4000');
     this.socket = io(`${origin}${RT_NAMESPACE}`, {
-      transports: ['websocket'],
+      // Polling-first then upgrade — same proxy-safe strategy as the media
+      // client. WebSocket-only silently dies if the upgrade is blocked, which
+      // made chat/presence appear "not working" even though the room connected.
+      transports: ['polling', 'websocket'],
+      upgrade: true,
       auth: { mediaToken },
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      withCredentials: false,
     });
+
+    // Make connection problems visible instead of failing silently.
+    this.socket.on('connect', () => console.info('[rt] connected via', (this.socket as any)?.io?.engine?.transport?.name));
+    this.socket.on('connect_error', (e) => console.error('[rt] connect_error', e.message));
+    this.socket.on('rt:error', (e: any) => console.error('[rt] server error', e?.message ?? e));
   }
 
   on(event: string, handler: (...args: any[]) => void) {

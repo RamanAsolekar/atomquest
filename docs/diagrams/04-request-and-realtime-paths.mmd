@@ -1,0 +1,14 @@
+﻿flowchart LR
+  Browser["Browser client"]
+  API["FastAPI REST"]
+  RT["Backend Socket.IO /rt"]
+  SSE["Backend SSE /api/stream/*"]
+  SFU["Media Socket.IO /sfu"]
+  RTP["DTLS/SRTP media path"]
+
+  Browser -->|login, sessions, history, admin| API
+  Browser -->|chat, presence, annotations| RT
+  Browser -->|dashboard/admin/analytics live feed| SSE
+  Browser -->|join room, create transports, produce, consume| SFU
+  Browser <-->|audio/video/screen media| RTP
+  RTP <-->|routed by mediasoup| SFU

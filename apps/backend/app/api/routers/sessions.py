@@ -86,7 +86,7 @@ async def end_session(session_id: str, request: Request, user: CurrentUser = Dep
 @router.post("/{session_id}/invites")
 async def create_invite(session_id: str, body: CreateInviteRequest, request: Request, user: CurrentUser = Depends(require_permissions("invite:create")), db: AsyncSession = Depends(get_db)):
     await session_service.assert_can_end(db, session_id, user)
-    invite = await session_service.create_invite(db, session_id, body.customer_name, body.expires_in_seconds)
+    invite = await session_service.create_invite(db, session_id, body.customer_name, body.expires_in_seconds, request)
     await audit_service.write(db, AuditAction.GENERATE_INVITE.value, user.id, "session", session_id, request.client.host if request.client else None)
     return invite
 

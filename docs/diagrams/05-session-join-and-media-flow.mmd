@@ -1,0 +1,22 @@
+﻿sequenceDiagram
+  participant B as Browser
+  participant API as FastAPI backend
+  participant DB as PostgreSQL
+  participant R as Redis event bus
+  participant SFU as Media server
+
+  B->>API: Login or validate invite
+  API->>DB: Load user/session/invite
+  API-->>B: Access token or invite validation result
+  B->>API: Join session
+  API->>DB: Upsert participant and session state
+  API->>R: Publish participant joined
+  API-->>B: Session, participant, media token
+  B->>SFU: sfu:join with media token
+  SFU->>SFU: Verify token and create/get room router
+  SFU-->>B: Router RTP capabilities and current producers
+  B->>SFU: Create send and receive transports
+  B->>SFU: Produce microphone, camera, or screen track
+  SFU-->>B: Notify peers about new producers
+  B->>SFU: Consume peer producers
+  SFU-->>B: Routed DTLS/SRTP media

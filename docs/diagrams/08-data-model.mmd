@@ -1,0 +1,32 @@
+﻿erDiagram
+  USER ||--o{ SESSION : owns
+  USER ||--o{ REFRESH_TOKEN : has
+  USER ||--o{ USER_PERMISSION : granted
+  PERMISSION ||--o{ USER_PERMISSION : maps
+  USER ||--o{ AUDIT_LOG : creates
+  USER ||--o{ NOTIFICATION : receives
+
+  SESSION ||--o{ INVITE : issues
+  SESSION ||--o{ PARTICIPANT : includes
+  SESSION ||--o{ MESSAGE : stores
+  SESSION ||--o{ SHARED_FILE : contains
+  SESSION ||--o{ RECORDING : captures
+  SESSION ||--o{ SESSION_EVENT : logs
+  SESSION ||--o{ TRANSCRIPT : transcribes
+  SESSION ||--|| AI_INSIGHT : summarizes
+
+  SHARED_FILE ||--o{ MESSAGE : referenced_by
+
+  KB_ARTICLE {
+    string id
+    string title
+    string url
+    string category
+    boolean is_active
+  }
+
+  APP_CONFIG {
+    string key
+    json value
+    string description
+  }

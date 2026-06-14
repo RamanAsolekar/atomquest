@@ -68,6 +68,8 @@ export function attachSignaling(io: Server): void {
         ack(cb, {
           routerRtpCapabilities: room.router.rtpCapabilities,
           existingProducers: room.otherProducers(peer.id),
+          // STUN/TURN for browser-side NAT traversal (Meet-style reachability).
+          iceServers: config.iceServers,
         });
         logger.info({ sessionId: payload.sessionId, peer: peer.displayName }, 'SFU join');
       } catch (e) {

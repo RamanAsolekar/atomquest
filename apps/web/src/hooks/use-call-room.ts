@@ -39,7 +39,12 @@ interface JoinResult {
  * Orchestrates a call: local media → SFU producers, remote SFU consumers,
  * realtime chat/presence, reconnection, recording state and AI insights.
  */
-export function useCallRoom(sessionId: string, displayName: string, inviteToken?: string) {
+interface InitialMedia {
+  audioEnabled?: boolean;
+  videoEnabled?: boolean;
+}
+
+export function useCallRoom(sessionId: string, displayName: string, inviteToken?: string, initial?: InitialMedia) {
   const [joined, setJoined] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<any>(null);
@@ -50,8 +55,8 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [audioEnabled, setAudioEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(initial?.audioEnabled ?? true);
+  const [videoEnabled, setVideoEnabled] = useState(initial?.videoEnabled ?? true);
   const [screenSharing, setScreenSharing] = useState(false);
   const [recording, setRecording] = useState<string>('IDLE');
   const [recordingId, setRecordingId] = useState<string | null>(null);
@@ -74,14 +79,22 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
       setRole(result.participant.role);
       setRecording(result.session.recordingStatus ?? 'IDLE');
 
-      // local media (best-effort: continue audio-only if camera blocked)
-      let stream: MediaStream;
+      // Local media is best-effort, like Google Meet: try cam+mic, fall back to
+      // audio-only, and if BOTH are blocked still join (view/listen-only) rather
+      // than dead-ending with a cryptic "Permission denied".
+      let stream: MediaStream = new MediaStream();
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true });
       } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setVideoEnabled(false);
-        toast.warning('Camera unavailable — joining with audio only');
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          setVideoEnabled(false);
+          toast.warning('Camera unavailable — joining with audio only');
+        } catch {
+          setVideoEnabled(false);
+          setAudioEnabled(false);
+          toast.warning('Camera & mic blocked — joining in view-only mode. Enable them in your browser to share.');
+        }
       }
       setLocalStream(stream);
 
@@ -95,8 +108,25 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
       await media.current.connect();
       const audioTrack = stream.getAudioTracks()[0];
       const videoTrack = stream.getVideoTracks()[0];
-      if (audioTrack) await media.current.produce(audioTrack, AppMediaKind.MIC);
-      if (videoTrack) await media.current.produce(videoTrack, AppMediaKind.CAM);
+      // Honour the green-room choices: produce the tracks, then immediately
+      // pause + disable any the participant turned off before joining. Surface
+      // produce failures instead of silently ending up with no video/audio.
+      try {
+        if (audioTrack) {
+          await media.current.produce(audioTrack, AppMediaKind.MIC);
+          if (!audioEnabled) { audioTrack.enabled = false; await media.current.pauseProducer(AppMediaKind.MIC); }
+        }
+        if (videoTrack) {
+          await media.current.produce(videoTrack, AppMediaKind.CAM);
+          if (!videoEnabled) { videoTrack.enabled = false; await media.current.pauseProducer(AppMediaKind.CAM); }
+        }
+        if (!audioTrack && !videoTrack) {
+          console.warn('[room] joined with no camera/mic tracks — view-only');
+        }
+      } catch (e: any) {
+        console.error('[room] produce failed', e);
+        toast.error(`Could not start your camera/mic: ${e?.message ?? 'unknown error'}`);
+      }
 
       // Realtime (chat/presence)
       rt.current = new RealtimeClient(result.mediaToken);
@@ -131,23 +161,52 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
     return () => clearInterval(t);
   }, [joined]);
 
+  /**
+   * Acquire camera/mic and PRODUCE the tracks for the first time. Used both when
+   * a view-only participant clicks "enable", and as a fallback inside the toggles
+   * when no producer exists yet (e.g. they joined with devices blocked). Returns
+   * which kinds were successfully produced.
+   */
+  const enableDevices = useCallback(async (): Promise<{ audio: boolean; video: boolean }> => {
+    if (!media.current) return { audio: false, video: false };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true });
+      // Stop any prior empty/placeholder stream and adopt the new one.
+      localStream?.getTracks().forEach((t) => t.stop());
+      setLocalStream(stream);
+      const audioTrack = stream.getAudioTracks()[0];
+      const videoTrack = stream.getVideoTracks()[0];
+      if (audioTrack) { await media.current.produce(audioTrack, AppMediaKind.MIC); setAudioEnabled(true); rt.current?.toggleMedia({ audioEnabled: true }); }
+      if (videoTrack) { await media.current.produce(videoTrack, AppMediaKind.CAM); setVideoEnabled(true); rt.current?.toggleMedia({ videoEnabled: true }); }
+      toast.success('Camera & mic enabled');
+      return { audio: !!audioTrack, video: !!videoTrack };
+    } catch (e: any) {
+      toast.error(`Could not access camera/mic: ${e?.message ?? 'permission denied'}. Allow it in your browser (lock icon near the address bar).`);
+      return { audio: false, video: false };
+    }
+  }, [localStream]);
+
   const toggleAudio = useCallback(async () => {
+    // No mic producer yet (joined view-only) → acquire + produce instead.
+    if (!localStream?.getAudioTracks().length) { await enableDevices(); return; }
     const next = !audioEnabled;
     setAudioEnabled(next);
-    localStream?.getAudioTracks().forEach((t) => (t.enabled = next));
+    localStream.getAudioTracks().forEach((t) => (t.enabled = next));
     if (next) await media.current?.resumeProducer(AppMediaKind.MIC);
     else await media.current?.pauseProducer(AppMediaKind.MIC);
     rt.current?.toggleMedia({ audioEnabled: next });
-  }, [audioEnabled, localStream]);
+  }, [audioEnabled, localStream, enableDevices]);
 
   const toggleVideo = useCallback(async () => {
+    // No camera producer yet (joined view-only) → acquire + produce instead.
+    if (!localStream?.getVideoTracks().length) { await enableDevices(); return; }
     const next = !videoEnabled;
     setVideoEnabled(next);
-    localStream?.getVideoTracks().forEach((t) => (t.enabled = next));
+    localStream.getVideoTracks().forEach((t) => (t.enabled = next));
     if (next) await media.current?.resumeProducer(AppMediaKind.CAM);
     else await media.current?.pauseProducer(AppMediaKind.CAM);
     rt.current?.toggleMedia({ videoEnabled: next });
-  }, [videoEnabled, localStream]);
+  }, [videoEnabled, localStream, enableDevices]);
 
   const toggleScreenShare = useCallback(async () => {
     if (screenSharing) {
@@ -158,15 +217,36 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
       rt.current?.toggleMedia({ screenSharing: false });
       return;
     }
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      toast.error('Screen sharing is not supported in this browser.');
+      return;
+    }
+    let s: MediaStream;
     try {
-      const s = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+      s = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
+    } catch (e: any) {
+      // NotAllowedError = the user clicked Cancel in the picker → stay silent.
+      if (e?.name !== 'NotAllowedError') {
+        console.error('[room] getDisplayMedia failed', e);
+        toast.error(`Could not start screen share: ${e?.message ?? e?.name ?? 'unknown error'}`);
+      }
+      return;
+    }
+    try {
       setScreenStream(s);
       setScreenSharing(true);
       const track = s.getVideoTracks()[0];
       track.onended = () => toggleScreenShare();
       await media.current?.produce(track, AppMediaKind.SCREEN);
       rt.current?.toggleMedia({ screenSharing: true });
-    } catch { /* user cancelled */ }
+    } catch (e: any) {
+      // Produce failed after capture — roll back so UI isn't stuck "sharing".
+      console.error('[room] screen produce failed', e);
+      toast.error(`Screen share failed to publish: ${e?.message ?? 'unknown error'}`);
+      s.getTracks().forEach((t) => t.stop());
+      setScreenStream(null);
+      setScreenSharing(false);
+    }
   }, [screenSharing, screenStream]);
 
   const sendMessage = useCallback((text: string) => rt.current?.sendMessage(text), []);
@@ -215,7 +295,7 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
     localStream, screenStream, remoteStreams, participants, messages,
     audioEnabled, videoEnabled, screenSharing, recording, recordingId,
     aiInsights, transcript,
-    join, toggleAudio, toggleVideo, toggleScreenShare, sendMessage,
+    join, toggleAudio, toggleVideo, toggleScreenShare, sendMessage, enableDevices,
     startRecording, stopRecording, leave, endSession, uploadFile,
     onAnnotationStroke, clearAnnotations, sendPointer,
     registerAnnotationHandler, registerPointerHandler,

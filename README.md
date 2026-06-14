@@ -100,10 +100,18 @@ docker compose ps
 
 Main URLs:
 
+> **Open the app at `http://localhost` (or `http://localhost:3000`).** Both work:
+> the frontend talks to its own origin and same-origin requests are routed to the
+> backend (`/api`, `/socket.io/`) and media SFU (`/sfu/socket.io/`) by nginx — and
+> also by Next.js rewrites when hitting `:3000` directly. This same-origin design
+> is what lets **shared invite links work for remote participants** (they never
+> reach a hardcoded `localhost`). For remote access, browse to the host's LAN/public
+> address, e.g. `http://192.168.1.20`, and share that invite link.
+
 | Service | URL |
 |---|---|
 | App through NGINX | http://localhost |
-| Web direct | http://localhost:3000 |
+| Web direct (also proxies /api, /sfu) | http://localhost:3000 |
 | Backend API docs | http://localhost:4000/api/docs |
 | Backend health | http://localhost:4000/health |
 | Media health | http://localhost:5000/health |

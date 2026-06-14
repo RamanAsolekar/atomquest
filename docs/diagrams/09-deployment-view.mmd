@@ -1,0 +1,47 @@
+﻿flowchart TB
+  Internet["Internet"]
+  TLS["TLS load balancer / reverse proxy"]
+
+  subgraph Stateless["Horizontally scalable services"]
+    Web1["web replicas"]
+    API1["backend replicas"]
+  end
+
+  subgraph MediaTier["Media tier"]
+    Media1["media node A\nhost networking recommended"]
+    Media2["media node B\nUDP/TCP RTC range"]
+  end
+
+  subgraph ManagedData["Stateful data"]
+    DB[("PostgreSQL / RDS")]
+    Cache[("Redis / ElastiCache")]
+    Bucket[("S3-compatible object storage")]
+  end
+
+  subgraph Ops["Operations"]
+    Metrics["Prometheus"]
+    Dashboards["Grafana"]
+    Logs["Loki"]
+    Traces["OpenTelemetry collector"]
+  end
+
+  Internet --> TLS
+  TLS --> Web1
+  TLS --> API1
+  TLS --> Media1
+  TLS --> Media2
+
+  API1 --> DB
+  API1 --> Cache
+  API1 --> Bucket
+  Media1 --> Bucket
+  Media2 --> Bucket
+  Media1 --> API1
+  Media2 --> API1
+
+  API1 --> Traces
+  API1 --> Metrics
+  Media1 --> Metrics
+  Media2 --> Metrics
+  Logs --> Dashboards
+  Metrics --> Dashboards

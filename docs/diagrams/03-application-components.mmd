@@ -1,0 +1,46 @@
+﻿flowchart TB
+  subgraph WebApp["apps/web"]
+    Pages["App Router pages\nlogin, dashboard, room, history, admin, analytics"]
+    Components["Room components\nvideo tile, chat, annotation canvas"]
+    Clients["API, realtime, media clients"]
+    Store["Zustand auth store\nReact Query server cache"]
+  end
+
+  subgraph BackendApp["apps/backend"]
+    Routers["FastAPI routers\nauth, sessions, chat, recordings, files,\nadmin, analytics, audit, ai, transcripts, config"]
+    Services["Service layer\nbusiness rules and persistence"]
+    Realtime["Socket.IO /rt gateway\nchat, presence, annotations"]
+    Streams["SSE streams\nlive dashboards and session updates"]
+    EventBus["Redis event bus"]
+    Models["SQLAlchemy models\nAlembic migrations"]
+  end
+
+  subgraph MediaApp["apps/media"]
+    Signaling["Socket.IO /sfu signaling"]
+    Workers["mediasoup worker pool"]
+    Rooms["Room manager\none router per session"]
+    Recorder["FFmpeg recorder"]
+    Transcriber["FFmpeg audio tap\nfaster-whisper worker"]
+    MediaMetrics["Prometheus metrics"]
+  end
+
+  Pages --> Components
+  Components --> Clients
+  Store --> Clients
+  Clients --> Routers
+  Clients --> Realtime
+  Clients --> Signaling
+
+  Routers --> Services
+  Services --> Models
+  Services --> EventBus
+  EventBus --> Streams
+  EventBus --> Realtime
+
+  Signaling --> Rooms
+  Rooms --> Workers
+  Rooms --> Recorder
+  Rooms --> Transcriber
+  Recorder --> Routers
+  Transcriber --> Routers
+  MediaMetrics --> Workers

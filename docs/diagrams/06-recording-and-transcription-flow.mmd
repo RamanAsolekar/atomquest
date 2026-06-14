@@ -1,0 +1,25 @@
+﻿sequenceDiagram
+  participant Agent as Agent browser
+  participant API as FastAPI backend
+  participant SFU as Media server
+  participant F as FFmpeg
+  participant W as Whisper worker
+  participant S3 as MinIO / S3
+  participant DB as PostgreSQL
+
+  Agent->>API: Start recording
+  API->>DB: Create recording row
+  API->>SFU: POST /recording/start
+  SFU->>F: Start PlainTransport consumer pipeline
+  F->>SFU: Write recording artifact
+  SFU->>W: Stream audio chunks for STT
+  W->>API: POST transcript segment
+  API->>DB: Persist transcript
+  API-->>Agent: Broadcast transcript event
+  Agent->>API: Stop recording
+  API->>SFU: POST /recording/stop
+  SFU->>F: Flush and close file
+  SFU->>S3: Upload recording
+  SFU->>API: Recording callback with storage key
+  API->>DB: Mark recording READY
+  API-->>Agent: Broadcast recording status

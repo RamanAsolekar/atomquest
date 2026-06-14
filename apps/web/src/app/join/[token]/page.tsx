@@ -1,27 +1,27 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
-import { Loader2, ShieldCheck, ShieldX, Video } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Loader2, ShieldX } from 'lucide-react';
 import { Logo } from '@/components/logo';
 import { Api } from '@/lib/api';
-import { CustomerRoom } from '@/components/room/customer-room';
+import { CallRoom } from '@/components/room/call-room';
+import { PreJoin, type PreJoinChoice } from '@/components/room/pre-join';
 
 /**
- * Customer join portal. Validates the invite token, collects a display name,
- * then drops the customer into the call (no login, no app install).
+ * Customer join portal (Google-Meet-style). Validates the invite token, then
+ * shows a green room with a live device preview before dropping the customer
+ * into the call — no login, no app install.
  */
 export default function JoinPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
-  const [state, setState] = useState<'validating' | 'invalid' | 'ready' | 'joining'>('validating');
+  const [state, setState] = useState<'validating' | 'invalid' | 'ready'>('validating');
   const [error, setError] = useState('');
   const [info, setInfo] = useState<any>(null);
-  const [name, setName] = useState('');
+  const [choice, setChoice] = useState<PreJoinChoice | null>(null);
 
   useEffect(() => {
     Api.validateInvite(token)
-      .then((res) => { setInfo(res); setName(res.customerName ?? ''); setState('ready'); })
+      .then((res) => { setInfo(res); setState('ready'); })
       .catch((e) => { setError(e.message ?? 'This invite is not valid'); setState('invalid'); });
   }, [token]);
 
@@ -38,26 +38,26 @@ export default function JoinPage({ params }: { params: Promise<{ token: string }
       </Center>
     );
   }
-  if (state === 'joining') {
-    return <CustomerRoom sessionId={info.sessionId} inviteToken={token} displayName={name} />;
+  if (choice) {
+    return (
+      <CallRoom
+        sessionId={info.sessionId}
+        inviteToken={token}
+        displayName={choice.displayName}
+        initialAudio={choice.audioEnabled}
+        initialVideo={choice.videoEnabled}
+      />
+    );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-mesh p-4">
-      <div className="w-full max-w-sm rounded-2xl border bg-card/80 p-8 backdrop-blur">
-        <div className="mb-6 flex justify-center"><Logo /></div>
-        <div className="mb-4 flex items-center justify-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-xs font-medium text-success">
-          <ShieldCheck className="h-4 w-4" />Valid invite
-        </div>
-        <h1 className="text-center text-lg font-semibold">{info.sessionTitle}</h1>
-        <p className="mt-1 text-center text-sm text-muted-foreground">You&apos;ve been invited to a video support session.</p>
-        <div className="mt-6 space-y-3">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" autoFocus />
-          <Button variant="gradient" className="w-full" disabled={!name.trim()} onClick={() => setState('joining')}><Video />Join the call</Button>
-        </div>
-        <p className="mt-4 text-center text-xs text-muted-foreground">No installation required. Your camera & mic will be requested.</p>
-      </div>
-    </div>
+    <PreJoin
+      title={info.sessionTitle}
+      subtitle="You've been invited to a video support session."
+      roleLabel="Valid invite · joining as guest"
+      defaultName={info.customerName ?? ''}
+      onJoin={setChoice}
+    />
   );
 }
 

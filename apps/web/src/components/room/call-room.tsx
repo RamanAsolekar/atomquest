@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Mic, MicOff, Video as VideoIcon, VideoOff, Monitor, MonitorOff,
   PhoneOff, MessageSquare, Users, Circle, Square, PencilRuler,
-  Sparkles, Loader2, Wifi,
+  Sparkles, Loader2, Wifi, CameraOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,9 +21,24 @@ import { ParticipantRole, AppMediaKind } from '@atom/shared';
 type Panel = 'chat' | 'people' | 'ai' | null;
 
 /** The full in-call experience, shared by the agent room and customer join flow. */
-export function CallRoom({ sessionId, displayName, inviteToken }: { sessionId: string; displayName: string; inviteToken?: string }) {
+export function CallRoom({
+  sessionId,
+  displayName,
+  inviteToken,
+  initialAudio = true,
+  initialVideo = true,
+}: {
+  sessionId: string;
+  displayName: string;
+  inviteToken?: string;
+  initialAudio?: boolean;
+  initialVideo?: boolean;
+}) {
   const router = useRouter();
-  const room = useCallRoom(sessionId, displayName, inviteToken);
+  const room = useCallRoom(sessionId, displayName, inviteToken, {
+    audioEnabled: initialAudio,
+    videoEnabled: initialVideo,
+  });
   const [panel, setPanel] = useState<Panel>('chat');
   const [annotating, setAnnotating] = useState(false);
 
@@ -58,6 +73,10 @@ export function CallRoom({ sessionId, displayName, inviteToken }: { sessionId: s
   }
 
   const isAgent = room.role === ParticipantRole.AGENT;
+  // No local camera AND no mic track = joined view-only (devices blocked/missing).
+  const localHasVideo = !!room.localStream?.getVideoTracks().length;
+  const localHasAudio = !!room.localStream?.getAudioTracks().length;
+  const viewOnly = !localHasVideo && !localHasAudio;
   const screenRemote = room.remoteStreams.find((s) => s.mediaTag === AppMediaKind.SCREEN);
   const camRemotes = room.remoteStreams.filter((s) => s.mediaTag === AppMediaKind.CAM);
   const stage = room.screenSharing ? room.screenStream : screenRemote?.stream ?? null;
@@ -73,6 +92,16 @@ export function CallRoom({ sessionId, displayName, inviteToken }: { sessionId: s
           <Badge variant="secondary" className="gap-1.5"><Wifi className={cn('h-3 w-3', room.quality === 'poor' ? 'text-destructive' : room.quality === 'fair' ? 'text-warning' : 'text-success')} />{room.connectionState}</Badge>
         </div>
       </header>
+
+      {viewOnly && (
+        <div className="flex items-center justify-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
+          <CameraOff className="h-4 w-4 shrink-0" />
+          <span>You&apos;re in view-only mode — others can&apos;t see or hear you.</span>
+          <Button size="sm" variant="gradient" onClick={() => room.enableDevices()}>
+            <VideoIcon className="h-4 w-4" />Enable camera &amp; mic
+          </Button>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col p-3">
