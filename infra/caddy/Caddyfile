@@ -1,0 +1,17 @@
+# Caddy auto-HTTPS in front of the existing nginx reverse proxy.
+#
+# Caddy obtains and renews a free Let's Encrypt certificate for ${PUBLIC_HOST}
+# automatically (needs ports 80 + 443 reachable from the internet), terminates
+# TLS, and proxies everything to the internal nginx, which then routes /api,
+# /socket.io/, /rtc/, and the app exactly as in local dev. HTTPS is REQUIRED so
+# browsers allow getUserMedia (camera/mic) for remote customers.
+#
+# PUBLIC_HOST comes from the environment (e.g. your-name.duckdns.org).
+
+{$PUBLIC_HOST} {
+	encode gzip
+
+	# WebSockets (socket.io for /rt and /rtc/) upgrade transparently through
+	# Caddy's reverse_proxy — no special config needed.
+	reverse_proxy nginx:80
+}

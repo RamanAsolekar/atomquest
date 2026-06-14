@@ -476,6 +476,26 @@ k6 run -e BASE_URL=http://localhost:4000 tests/load/api-load.js
 
 ---
 
+## Deploy Publicly (free)
+
+To put this online so customers join via invite link from anywhere — for free,
+with working video — follow **[docs/DEPLOYMENT.md → Section F](docs/DEPLOYMENT.md#f-free-public-deploy-oracle-cloud--duckdns--https)**
+(Oracle Cloud Always-Free VM + DuckDNS hostname + automatic Let's Encrypt HTTPS).
+
+The short version, on a Linux VM with a public IP and a hostname pointing at it:
+
+```bash
+git clone https://github.com/RamanAsolekar/atomquest.git && cd atomquest
+cp .env.example .env
+# set PUBLIC_HOST=<your-host>, MEDIA_ANNOUNCED_IP=<vm-public-ip>,
+# TURN_URL=turn:<vm-public-ip>:3478, strong secrets; leave NEXT_PUBLIC_* empty
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+This adds **Caddy** in front of nginx for automatic HTTPS (browsers require HTTPS
+for camera/mic on non-`localhost`). Open firewall ports **80, 443 (TCP)**,
+**3478 (UDP/TCP)**, **49160–49200 (UDP)**, **40000–40100 (UDP/TCP)**.
+
 ## Kubernetes
 
 ```bash

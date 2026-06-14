@@ -1,5 +1,10 @@
 # Deployment Guide
 
+> **Quick path:** to deploy publicly **for free** with working video + invite
+> links, jump to **[Section F — Free public deploy (Oracle + DuckDNS + HTTPS)](#f-free-public-deploy-oracle-cloud--duckdns--https)**.
+> It uses `docker-compose.prod.yml` (adds Caddy auto-HTTPS) and is the recommended
+> way to get customers joining from anywhere.
+
 ## A. Local development (Docker Compose — recommended)
 
 ```bash
@@ -97,3 +102,119 @@ pools + `WHISPER_DEVICE=cuda` for low-latency transcription at scale.
 - [ ] Set S3 bucket policies + lifecycle rules for recordings.
 - [ ] Tune `MEDIASOUP_*_PORT` range and `MEDIA_NUM_WORKERS` to instance size.
 - [ ] Configure Prometheus alerting (error-rate, p95 latency, media-peer drop).
+
+---
+
+## F. Free public deploy (Oracle Cloud + DuckDNS + HTTPS)
+
+The simplest way to get **a public URL where customers join via invite link with
+real audio/video** — for free. Uses an Oracle Always-Free VM, a free DuckDNS
+hostname, and the `docker-compose.prod.yml` overlay (adds **Caddy** for automatic
+Let's Encrypt HTTPS in front of nginx).
+
+> HTTPS is **required**: browsers block camera/mic on plain `http://` for any
+> non-`localhost` host.
+
+### F.1 — Create the VM
+- Oracle Cloud free tier (<https://www.oracle.com/cloud/free/>): a
+  **VM.Standard.A1.Flex** Ubuntu 22.04 instance (up to 4 OCPU / 24 GB, ARM, free).
+- Note its **public IP**.
+
+### F.2 — Open ports (in BOTH places)
+WebRTC needs the UDP ranges or video silently fails.
+
+| Port(s) | Proto | Purpose |
+|---|---|---|
+| 80, 443 | TCP | HTTP/HTTPS (Caddy + Let's Encrypt) |
+| 3478 | UDP+TCP | TURN/STUN |
+| 49160–49200 | UDP | TURN relay range |
+| 40000–40100 | UDP+TCP | SFU media |
+
+- **Oracle Security List**: add Ingress rules (Source `0.0.0.0/0`) for each.
+- **On the VM** (`iptables`), open the same ports and persist:
+  ```bash
+  sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+  sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT
+  sudo iptables -I INPUT -p udp --dport 3478 -j ACCEPT
+  sudo iptables -I INPUT -p tcp --dport 3478 -j ACCEPT
+  sudo iptables -I INPUT -p udp --dport 49160:49200 -j ACCEPT
+  sudo iptables -I INPUT -p udp --dport 40000:40100 -j ACCEPT
+  sudo iptables -I INPUT -p tcp --dport 40000:40100 -j ACCEPT
+  sudo netfilter-persistent save
+  ```
+
+### F.3 — Free hostname (DuckDNS)
+- At <https://www.duckdns.org>, create e.g. `atom-support.duckdns.org` and point
+  it at the VM's **public IP**. Verify with `ping atom-support.duckdns.org`.
+
+### F.4 — Install Docker + clone
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER && newgrp docker
+git clone https://github.com/RamanAsolekar/atomquest.git
+cd atomquest && cp .env.example .env
+```
+
+### F.5 — Configure `.env`
+```ini
+PUBLIC_HOST=atom-support.duckdns.org      # your DuckDNS host
+
+# Browser endpoints stay EMPTY (same-origin through Caddy/nginx)
+NEXT_PUBLIC_API_URL=
+NEXT_PUBLIC_WS_URL=
+NEXT_PUBLIC_MEDIA_WS_URL=
+
+MEDIA_ANNOUNCED_IP=<VM_PUBLIC_IP>         # the SFU's reachable IP
+STUN_URL=stun:stun.l.google.com:19302
+TURN_URL=turn:<VM_PUBLIC_IP>:3478         # enable bundled coturn
+TURN_REALM=atom-support.duckdns.org
+TURN_USER=atom
+TURN_PASS=<strong secret>
+
+# Replace ALL secrets (openssl rand -hex 64 / 32)
+JWT_ACCESS_SECRET=...
+JWT_REFRESH_SECRET=...
+INVITE_TOKEN_SECRET=...
+COOKIE_SECRET=...
+POSTGRES_PASSWORD=...
+GRAFANA_ADMIN_PASSWORD=...
+```
+Keep `DATABASE_URL` in sync with `POSTGRES_PASSWORD`.
+
+### F.6 — Start with HTTPS
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+Caddy auto-provisions the Let's Encrypt cert for `PUBLIC_HOST` (needs DNS to point
+at the VM and ports 80/443 open). Verify:
+```bash
+docker compose ps
+curl -s https://atom-support.duckdns.org/api/health
+```
+
+### F.7 — Use it
+- App: **`https://atom-support.duckdns.org`**
+- **Agent** signs in → creates a session → **Invite** → copies the link.
+- **Customer** opens `https://atom-support.duckdns.org/join/<token>` on any device
+  → green room → joins with camera/mic.
+- **Admin** signs in for live sessions, analytics, audit, runtime config.
+
+The invite URL is built from the request host, so it already points at your HTTPS
+domain. **Change the seeded passwords before sharing publicly.**
+
+### F.8 — Update after code changes
+```bash
+git pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose restart nginx   # only if /rtc/ briefly 502s after a media rebuild
+```
+
+### Verification checklist
+- [ ] `https://<host>/` loads with a valid padlock.
+- [ ] Invite link opens on a **different device/network** and connects.
+- [ ] Both sides see/hear each other (validates `MEDIA_ANNOUNCED_IP` + TURN).
+- [ ] If signaling connects but no media flows → wrong `MEDIA_ANNOUNCED_IP` or a
+      closed UDP port (recheck F.2 in **both** Oracle and `iptables`).
+
+> A **$4–6/mo Hetzner/DigitalOcean VPS** follows the identical steps from F.2 and
+> is the most reliable paid alternative if Oracle signup is fussy.

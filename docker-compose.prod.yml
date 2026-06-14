@@ -1,0 +1,42 @@
+# Production overlay: adds Caddy for automatic HTTPS (Let's Encrypt) in front of
+# the existing nginx. Use together with the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Requires these in .env (see .env.example):
+#   PUBLIC_HOST=your-name.duckdns.org      # your free hostname, A-record -> VM public IP
+#   MEDIA_ANNOUNCED_IP=<VM_PUBLIC_IP>       # the SFU's reachable IP
+#   TURN_URL=turn:<VM_PUBLIC_IP>:3478       # enable the bundled coturn relay
+#   TURN_REALM=your-name.duckdns.org
+#   TURN_USER / TURN_PASS                   # strong secret
+#   NEXT_PUBLIC_*                           # leave EMPTY (same-origin)
+#
+# Open on the VM firewall: TCP 80, 443; UDP/TCP 3478; UDP 49160-49200 (TURN);
+# UDP/TCP 40000-40100 (SFU media).
+
+services:
+  # Caddy terminates TLS for PUBLIC_HOST and proxies to the internal nginx.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - nginx
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - '80:80'
+      - '443:443'
+
+  # Caddy owns host ports 80/443; move nginx's host binding off 80 to avoid a
+  # conflict. Caddy still reaches it over the Docker network as `nginx:80`.
+  nginx:
+    ports:
+      - '8080:80'
+
+volumes:
+  caddy_data:
+  caddy_config:
