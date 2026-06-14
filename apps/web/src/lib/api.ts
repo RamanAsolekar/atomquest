@@ -108,8 +108,11 @@ export const Api = {
     api<any>(`/api/sessions/${id}/invites`, { method: 'POST', body }),
   validateInvite: (token: string) =>
     api<any>(`/api/sessions/invite/${token}/validate`, { auth: false }),
+  // Joining WITH an invite token = guest join → don't send the agent's auth
+  // token (the user may be signed in as the agent in the same browser, which
+  // would otherwise make the backend treat them as the agent, not the guest).
   join: (id: string, body: any) =>
-    api<any>(`/api/sessions/${id}/join`, { method: 'POST', body, auth: !!accessToken }),
+    api<any>(`/api/sessions/${id}/join`, { method: 'POST', body, auth: !body?.inviteToken && !!accessToken }),
 
   // recordings
   startRecording: (id: string) => api(`/api/sessions/${id}/recording/start`, { method: 'POST' }),

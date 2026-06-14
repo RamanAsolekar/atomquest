@@ -3,7 +3,8 @@
     Nginx["nginx:80"]
     Web["web:3000\nNext.js standalone"]
     Backend["backend:4000\nFastAPI + Socket.IO"]
-    Media["media:5000\nmediasoup signaling + SFU"]
+    Media["media:5000\nmediasoup signaling + SFU\nRTC UDP/TCP 40000-40100"]
+    Coturn["coturn (host net)\nTURN/STUN 3478 + relay 49160-49200"]
     Postgres["postgres:5432"]
     Redis["redis:6379"]
     Minio["minio:9000/9001"]
@@ -15,9 +16,12 @@
   end
 
   Browser["Browser"] -->|http://localhost| Nginx
-  Nginx -->|/| Web
-  Nginx -->|/api, /socket.io| Backend
-  Nginx -->|/sfu| Media
+  Nginx -->|/ catch-all| Web
+  Nginx -->|/api, /socket.io/| Backend
+  Nginx -->|/rtc/ -> /socket.io/| Media
+
+  Browser -.->|WebRTC ICE: STUN/TURN| Coturn
+  Browser <-.->|DTLS/SRTP media UDP/TCP| Media
 
   Backend --> Postgres
   Backend --> Redis

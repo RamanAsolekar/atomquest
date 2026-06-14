@@ -35,5 +35,16 @@ const nextConfig = {
       { source: '/rtc/:path*', destination: `${MEDIA}/socket.io/:path*` },
     ];
   },
+  // Force the browser to revalidate the HTML document every load so a rebuilt
+  // app is never served stale (the cache trap that kept masking fixes during
+  // debugging). Hashed static chunks remain immutable/cacheable.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }],
+      },
+    ];
+  },
 };
 export default nextConfig;

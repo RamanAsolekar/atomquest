@@ -42,10 +42,16 @@ def _now() -> datetime:
 
 # ---------------------------------------------------------------- serialisation
 def participant_dto(p: Participant) -> dict:
+    # ISO-format datetimes so this DTO is safe for BOTH the REST API and the
+    # socket.io realtime broadcasts (python-socketio's JSON encoder cannot
+    # serialize raw datetime objects — emitting one crashes the /rt connect
+    # handler, which silently kills chat/presence in the room).
     return {
         "id": p.id, "sessionId": p.session_id, "userId": p.user_id,
         "displayName": p.display_name, "role": p.role, "status": p.status,
-        "joinedAt": p.joined_at, "leftAt": p.left_at, "durationSeconds": p.duration_seconds,
+        "joinedAt": p.joined_at.isoformat() if p.joined_at else None,
+        "leftAt": p.left_at.isoformat() if p.left_at else None,
+        "durationSeconds": p.duration_seconds,
         "audioEnabled": p.audio_enabled, "videoEnabled": p.video_enabled,
         "screenSharing": p.screen_sharing, "connectionQuality": p.connection_quality,
     }
@@ -232,7 +238,14 @@ async def join(db: AsyncSession, session_id: str, display_name: str, invite_toke
     if s.status in (SessionStatus.ENDED.value, SessionStatus.CANCELLED.value):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This session has ended")
 
-    if user and user.role in (UserRole.AGENT.value, UserRole.ADMIN.value):
+    # If an invite token is presented, this is an explicit GUEST join (the user
+    # opened a /join/<token> link) — honour that as a distinct customer even if
+    # they happen to be signed in as the agent in the same browser. This mirrors
+    # Google Meet: clicking a meeting link joins you as a participant regardless
+    # of any other session you're signed into. Without this, an agent testing
+    # their own invite link was silently treated as the agent rejoining, so the
+    # guest never appeared in the participant list.
+    if user and user.role in (UserRole.AGENT.value, UserRole.ADMIN.value) and not invite_token:
         if user.role == UserRole.AGENT.value and s.agent_id != user.id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not own this session")
         role = (

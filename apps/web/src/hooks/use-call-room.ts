@@ -70,8 +70,17 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
   const mediaToken = useRef<string>('');
   const annotationHandlers = useRef<((stroke: any) => void)[]>([]);
   const pointerHandlers = useRef<((p: any) => void)[]>([]);
+  // Guards against React 18 StrictMode's double-invoke of the mount effect (and
+  // any accidental re-join). Without this, the 2nd invocation tears down the
+  // 1st's in-flight SFU socket mid-handshake → "engine close — forced close" →
+  // the connect times out. This was the real root cause of "Cannot reach the
+  // media server" in the browser (Node clients have no StrictMode, so they
+  // always connected — which is why server-side tests kept passing).
+  const joinStarted = useRef(false);
 
   const join = useCallback(async () => {
+    if (joinStarted.current) return; // idempotent — ignore duplicate mount
+    joinStarted.current = true;
     try {
       const result: JoinResult = await Api.join(sessionId, { displayName, inviteToken });
       mediaToken.current = result.mediaToken;
@@ -109,23 +118,14 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
       const audioTrack = stream.getAudioTracks()[0];
       const videoTrack = stream.getVideoTracks()[0];
       // Honour the green-room choices: produce the tracks, then immediately
-      // pause + disable any the participant turned off before joining. Surface
-      // produce failures instead of silently ending up with no video/audio.
-      try {
-        if (audioTrack) {
-          await media.current.produce(audioTrack, AppMediaKind.MIC);
-          if (!audioEnabled) { audioTrack.enabled = false; await media.current.pauseProducer(AppMediaKind.MIC); }
-        }
-        if (videoTrack) {
-          await media.current.produce(videoTrack, AppMediaKind.CAM);
-          if (!videoEnabled) { videoTrack.enabled = false; await media.current.pauseProducer(AppMediaKind.CAM); }
-        }
-        if (!audioTrack && !videoTrack) {
-          console.warn('[room] joined with no camera/mic tracks — view-only');
-        }
-      } catch (e: any) {
-        console.error('[room] produce failed', e);
-        toast.error(`Could not start your camera/mic: ${e?.message ?? 'unknown error'}`);
+      // pause + disable any the participant turned off before joining.
+      if (audioTrack) {
+        await media.current.produce(audioTrack, AppMediaKind.MIC);
+        if (!audioEnabled) { audioTrack.enabled = false; await media.current.pauseProducer(AppMediaKind.MIC); }
+      }
+      if (videoTrack) {
+        await media.current.produce(videoTrack, AppMediaKind.CAM);
+        if (!videoEnabled) { videoTrack.enabled = false; await media.current.pauseProducer(AppMediaKind.CAM); }
       }
 
       // Realtime (chat/presence)
@@ -146,6 +146,7 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
 
       setJoined(true);
     } catch (e: any) {
+      joinStarted.current = false; // allow a retry after a genuine failure
       setError(e.message ?? 'Failed to join session');
     }
   }, [sessionId, displayName, inviteToken]);
@@ -162,16 +163,15 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
   }, [joined]);
 
   /**
-   * Acquire camera/mic and PRODUCE the tracks for the first time. Used both when
-   * a view-only participant clicks "enable", and as a fallback inside the toggles
-   * when no producer exists yet (e.g. they joined with devices blocked). Returns
-   * which kinds were successfully produced.
+   * Acquire camera/mic and PRODUCE the tracks for the first time. Used when a
+   * participant joined view-only (devices blocked/missing — common in Chrome
+   * device-emulation) and later wants to turn their camera on, and as a fallback
+   * inside the toggles when no producer exists yet.
    */
-  const enableDevices = useCallback(async (): Promise<{ audio: boolean; video: boolean }> => {
-    if (!media.current) return { audio: false, video: false };
+  const enableDevices = useCallback(async (): Promise<void> => {
+    if (!media.current) { toast.error('Not connected to the media server yet.'); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true });
-      // Stop any prior empty/placeholder stream and adopt the new one.
       localStream?.getTracks().forEach((t) => t.stop());
       setLocalStream(stream);
       const audioTrack = stream.getAudioTracks()[0];
@@ -179,15 +179,12 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
       if (audioTrack) { await media.current.produce(audioTrack, AppMediaKind.MIC); setAudioEnabled(true); rt.current?.toggleMedia({ audioEnabled: true }); }
       if (videoTrack) { await media.current.produce(videoTrack, AppMediaKind.CAM); setVideoEnabled(true); rt.current?.toggleMedia({ videoEnabled: true }); }
       toast.success('Camera & mic enabled');
-      return { audio: !!audioTrack, video: !!videoTrack };
     } catch (e: any) {
-      toast.error(`Could not access camera/mic: ${e?.message ?? 'permission denied'}. Allow it in your browser (lock icon near the address bar).`);
-      return { audio: false, video: false };
+      toast.error(`Could not access camera/mic: ${e?.message ?? 'permission denied'}. Allow it via the lock icon near the address bar.`);
     }
   }, [localStream]);
 
   const toggleAudio = useCallback(async () => {
-    // No mic producer yet (joined view-only) → acquire + produce instead.
     if (!localStream?.getAudioTracks().length) { await enableDevices(); return; }
     const next = !audioEnabled;
     setAudioEnabled(next);
@@ -198,7 +195,6 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
   }, [audioEnabled, localStream, enableDevices]);
 
   const toggleVideo = useCallback(async () => {
-    // No camera producer yet (joined view-only) → acquire + produce instead.
     if (!localStream?.getVideoTracks().length) { await enableDevices(); return; }
     const next = !videoEnabled;
     setVideoEnabled(next);
@@ -225,12 +221,10 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
     try {
       s = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
     } catch (e: any) {
-      // NotAllowedError = the user clicked Cancel in the picker → stay silent.
       if (e?.name !== 'NotAllowedError') {
-        console.error('[room] getDisplayMedia failed', e);
         toast.error(`Could not start screen share: ${e?.message ?? e?.name ?? 'unknown error'}`);
       }
-      return;
+      return; // NotAllowedError = user cancelled the picker → stay silent
     }
     try {
       setScreenStream(s);
@@ -240,8 +234,6 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
       await media.current?.produce(track, AppMediaKind.SCREEN);
       rt.current?.toggleMedia({ screenSharing: true });
     } catch (e: any) {
-      // Produce failed after capture — roll back so UI isn't stuck "sharing".
-      console.error('[room] screen produce failed', e);
       toast.error(`Screen share failed to publish: ${e?.message ?? 'unknown error'}`);
       s.getTracks().forEach((t) => t.stop());
       setScreenStream(null);
@@ -264,11 +256,19 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
   }, [sessionId]);
 
   const leave = useCallback(() => {
+    joinStarted.current = false;
     media.current?.close();
+    media.current = null;
     rt.current?.close();
+    rt.current = null;
     localStream?.getTracks().forEach((t) => t.stop());
     screenStream?.getTracks().forEach((t) => t.stop());
   }, [localStream, screenStream]);
+
+  // Keep a stable ref to the latest leave() so the unmount cleanup below doesn't
+  // need it in its dependency array (which would make it re-run on every render).
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
 
   const endSession = useCallback(async () => {
     try { await Api.endSession(sessionId); } catch { rt.current?.endSession(); }
@@ -288,7 +288,19 @@ export function useCallRoom(sessionId: string, displayName: string, inviteToken?
     }
   }, []);
 
-  useEffect(() => () => leave(), [leave]);
+  // StrictMode-safe teardown. React 18 StrictMode mounts → unmounts → remounts
+  // every effect once in dev. A synchronous teardown here would close the SFU
+  // socket the FIRST mount just opened ("forced close"), breaking the connect.
+  // We DEFER teardown by a tick into a ref (which survives the remount); if the
+  // component immediately remounts (the StrictMode probe), the new mount cancels
+  // the pending teardown. A real unmount lets it fire.
+  const teardownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (teardownTimer.current) { clearTimeout(teardownTimer.current); teardownTimer.current = null; }
+    return () => {
+      teardownTimer.current = setTimeout(() => leaveRef.current(), 100);
+    };
+  }, []);
 
   return {
     joined, error, session, role, connectionState, quality, ended,

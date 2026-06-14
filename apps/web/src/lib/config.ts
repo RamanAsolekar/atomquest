@@ -11,9 +11,10 @@ export const env = {
     typeof window !== 'undefined'
       ? ''
       : (process.env.NEXT_PUBLIC_WS_URL ?? 'http://localhost:4000'),
-  mediaWsUrl:
-    typeof window !== 'undefined'
-      ? ''
-      : (process.env.NEXT_PUBLIC_MEDIA_WS_URL ?? 'http://localhost:5000'),
+  // In the browser, honour NEXT_PUBLIC_MEDIA_WS_URL when it's set to an absolute
+  // URL (bypass mode → talk straight to the media server, skipping nginx). When
+  // empty, '' means same-origin (/rtc/ via nginx). Next.js inlines this constant
+  // at build time, so the value baked here is whatever the build received.
+  mediaWsUrl: process.env.NEXT_PUBLIC_MEDIA_WS_URL ?? '',
   appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'Atom Support Vision',
 };

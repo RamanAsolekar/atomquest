@@ -25,8 +25,10 @@ async def ingest(db: AsyncSession, session_id: str, text: str, speaker: str | No
     await db.flush()
     metrics.transcripts_total.inc()
 
+    # ISO string — this payload is relayed over socket.io (rt:transcript), whose
+    # JSON encoder cannot serialize raw datetimes.
     payload = {"id": seg.id, "sessionId": session_id, "speaker": speaker, "text": seg.text,
-               "isFinal": is_final, "createdAt": seg.created_at}
+               "isFinal": is_final, "createdAt": seg.created_at.isoformat() if seg.created_at else None}
     await bus.publish(f"session:{session_id}", "transcript", payload)
 
     if is_final:

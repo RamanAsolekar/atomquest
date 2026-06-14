@@ -139,6 +139,9 @@ services:
         # participant only ever knows the one URL they opened.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+        # Empty = same-origin (/rtc/ via nginx) — the correct architecture. The
+        # direct-:5000 bypass was tried and made no difference (the failure was
+        # client-side "forced close", not the proxy), so we keep same-origin.
         NEXT_PUBLIC_MEDIA_WS_URL: ${NEXT_PUBLIC_MEDIA_WS_URL:-}
     restart: unless-stopped
     depends_on:

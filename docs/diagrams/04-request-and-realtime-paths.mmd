@@ -1,14 +1,19 @@
 ﻿flowchart LR
-  Browser["Browser client"]
-  API["FastAPI REST"]
-  RT["Backend Socket.IO /rt"]
-  SSE["Backend SSE /api/stream/*"]
-  SFU["Media Socket.IO /sfu"]
+  Browser["Browser client\n(single origin)"]
+  API["FastAPI REST\n/api/*"]
+  RT["Backend Socket.IO\npath /socket.io/ ns /rt"]
+  SSE["Backend SSE\n/api/stream/*"]
+  SFU["Media Socket.IO\nengine path /rtc/ ns /sfu"]
+  TURN["coturn STUN/TURN"]
   RTP["DTLS/SRTP media path"]
 
   Browser -->|login, sessions, history, admin| API
-  Browser -->|chat, presence, annotations| RT
+  Browser -->|chat, presence, annotations, media-state| RT
   Browser -->|dashboard/admin/analytics live feed| SSE
   Browser -->|join room, create transports, produce, consume| SFU
+  Browser -->|gather ICE candidates| TURN
   Browser <-->|audio/video/screen media| RTP
   RTP <-->|routed by mediasoup| SFU
+
+  %% All HTTP/WS rides the page's own origin; nginx routes by path prefix.
+  %% /rtc/ is the engine.io HTTP path that nginx rewrites to the media /socket.io/.

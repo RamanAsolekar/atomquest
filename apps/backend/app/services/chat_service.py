@@ -17,7 +17,10 @@ def _dto(m: Message, f: SharedFile | None = None) -> dict:
         "senderName": m.sender_name, "senderRole": m.sender_role, "type": m.type, "body": m.body,
         "fileId": m.file_id, "fileName": f.file_name if f else None,
         "fileMime": f.mime_type if f else None, "fileSize": f.size_bytes if f else None,
-        "fileUrl": f"/api/files/{f.id}/download" if f else None, "createdAt": m.created_at,
+        "fileUrl": f"/api/files/{f.id}/download" if f else None,
+        # ISO string: this DTO is emitted over socket.io (rt:message), whose JSON
+        # encoder cannot serialize raw datetimes — a raw value crashes the send.
+        "createdAt": m.created_at.isoformat() if m.created_at else None,
     }
 
 

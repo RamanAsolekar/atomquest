@@ -126,21 +126,12 @@ export class MediaClient {
       autoConnect: true,
     });
 
-    // Log low-level engine errors that don't surface as connect_error.
+    // Exception-safe lifecycle diagnostics (no reaching into engine internals
+    // from inside handlers — that can throw mid-handshake and abort the connect).
     this.socket.io.on('error', (e: any) => console.error('[media] manager error', e?.message ?? e));
-    this.socket.on('connect', () => console.info('[media] connected via', (this.socket as any)?.io?.engine?.transport?.name));
-
-    // Deep engine diagnostics so a silent timeout is never a dead end: log the
-    // initial transport, every upgrade attempt, and any engine-level close. This
-    // is what tells us WHERE a browser stalls (polling open vs. WS upgrade vs.
-    // namespace) when connect_error never fires.
-    this.socket.io.on('open', () => {
-      const eng = (this.socket as any)?.io?.engine;
-      console.info('[media] engine open — transport:', eng?.transport?.name);
-      eng?.on('upgrade', (t: any) => console.info('[media] engine upgraded to', t?.name));
-      eng?.on('upgradeError', (e: any) => console.error('[media] engine upgradeError', e?.message ?? e));
-      eng?.on('close', (reason: any) => console.error('[media] engine close —', reason));
-    });
+    this.socket.io.on('open', () => console.info('[media] engine open'));
+    this.socket.io.on('close', (reason: any) => console.error('[media] engine close —', reason));
+    this.socket.on('connect', () => console.info('[media] connected'));
 
     this.socket.on('disconnect', () => this.events.onConnectionStateChange('disconnected'));
     this.socket.io.on('reconnect', () => this.rejoin());

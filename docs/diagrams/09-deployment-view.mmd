@@ -8,8 +8,9 @@
   end
 
   subgraph MediaTier["Media tier"]
-    Media1["media node A\nhost networking recommended"]
-    Media2["media node B\nUDP/TCP RTC range"]
+    Media1["media node A\npublic IP, RTC UDP/TCP range"]
+    Media2["media node B\npublic IP, RTC UDP/TCP range"]
+    Turn["coturn TURN/STUN\nrelays media for symmetric NAT"]
   end
 
   subgraph ManagedData["Stateful data"]
@@ -30,6 +31,9 @@
   TLS --> API1
   TLS --> Media1
   TLS --> Media2
+  Internet -.->|WebRTC ICE STUN/TURN| Turn
+  Internet <-.->|DTLS/SRTP media| Media1
+  Internet <-.->|DTLS/SRTP media| Media2
 
   API1 --> DB
   API1 --> Cache

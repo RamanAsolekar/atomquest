@@ -73,7 +73,7 @@ export function CallRoom({
   }
 
   const isAgent = room.role === ParticipantRole.AGENT;
-  // No local camera AND no mic track = joined view-only (devices blocked/missing).
+  // No local camera AND no mic = joined view-only (devices blocked/missing).
   const localHasVideo = !!room.localStream?.getVideoTracks().length;
   const localHasAudio = !!room.localStream?.getAudioTracks().length;
   const viewOnly = !localHasVideo && !localHasAudio;
@@ -83,7 +83,11 @@ export function CallRoom({
   const stageName = room.screenSharing ? 'Your screen' : screenRemote?.displayName ?? '';
 
   return (
-    <div className="flex h-screen flex-col bg-[#0a0a0f] text-white">
+    // h-[100dvh] (dynamic viewport height) instead of h-screen so the layout fits
+    // the ACTUAL visible area on mobile/narrow views — h-screen (100vh) is taller
+    // than the visible area when the browser chrome is showing, which pushed the
+    // control bar off the bottom of the screen (only some buttons were visible).
+    <div className="flex h-[100dvh] flex-col bg-[#0a0a0f] text-white">
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
         <div className="flex items-center gap-3"><Logo /><span className="hidden text-sm text-white/60 sm:inline">· {room.session?.title}</span></div>
         <div className="flex items-center gap-2">
@@ -94,7 +98,7 @@ export function CallRoom({
       </header>
 
       {viewOnly && (
-        <div className="flex items-center justify-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
+        <div className="flex flex-wrap items-center justify-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
           <CameraOff className="h-4 w-4 shrink-0" />
           <span>You&apos;re in view-only mode — others can&apos;t see or hear you.</span>
           <Button size="sm" variant="gradient" onClick={() => room.enableDevices()}>
@@ -103,8 +107,8 @@ export function CallRoom({
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-w-0 flex-1 flex-col p-3">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden p-3">
           {stage ? (
             <div className="relative min-h-0 flex-1">
               <VideoTile stream={stage} name={stageName} isScreen className="h-full" muted={room.screenSharing} />
@@ -133,22 +137,29 @@ export function CallRoom({
         )}
       </div>
 
-      <footer className="flex flex-wrap items-center justify-center gap-2 border-t border-white/10 bg-[#0d0d14] px-4 py-3">
-        <Ctrl active={room.audioEnabled} onClick={room.toggleAudio} on={Mic} off={MicOff} label="Mic" danger={!room.audioEnabled} />
-        <Ctrl active={room.videoEnabled} onClick={room.toggleVideo} on={VideoIcon} off={VideoOff} label="Camera" danger={!room.videoEnabled} />
-        <Ctrl active={room.screenSharing} onClick={room.toggleScreenShare} on={MonitorOff} off={Monitor} label="Share" highlight={room.screenSharing} />
-        <Ctrl active={annotating} onClick={() => setAnnotating((a) => !a)} on={PencilRuler} off={PencilRuler} label="Annotate" highlight={annotating} />
-        {isAgent && (room.recording === 'RECORDING'
-          ? <Ctrl active onClick={room.stopRecording} on={Square} off={Square} label="Stop rec" danger />
-          : <Ctrl active onClick={room.startRecording} on={Circle} off={Circle} label="Record" disabled={room.recording === 'PROCESSING'} />)}
-        <div className="mx-2 hidden h-8 w-px bg-white/10 sm:block" />
-        <PanelToggle icon={MessageSquare} active={panel === 'chat'} onClick={() => setPanel(panel === 'chat' ? null : 'chat')} badge={room.messages.length} />
-        <PanelToggle icon={Users} active={panel === 'people'} onClick={() => setPanel(panel === 'people' ? null : 'people')} badge={room.participants.filter((p) => p.status === 'CONNECTED').length} />
-        <PanelToggle icon={Sparkles} active={panel === 'ai'} onClick={() => setPanel(panel === 'ai' ? null : 'ai')} />
-        <div className="mx-2 hidden h-8 w-px bg-white/10 sm:block" />
-        {isAgent
-          ? <Button variant="destructive" onClick={room.endSession}><PhoneOff />End session</Button>
-          : <Button variant="destructive" onClick={() => { room.leave(); router.push('/'); }}><PhoneOff />Leave</Button>}
+      {/* Control bar — a non-shrinking footer at the bottom of the flex column.
+          It uses a horizontally-scrollable single row so EVERY control is
+          reachable at any viewport size (especially short landscape, e.g.
+          608x400, where wrapping rows didn't fit). overflow-x-auto + shrink-0
+          children means the bar scrolls sideways rather than hiding buttons. */}
+      <footer className="z-10 min-h-[64px] shrink-0 border-t border-white/10 bg-[#0d0d14]">
+        <div className="mx-auto flex h-full max-w-full items-center gap-2 overflow-x-auto px-3 py-2.5 [scrollbar-width:thin] sm:justify-center">
+          <Ctrl active={room.audioEnabled} onClick={room.toggleAudio} on={Mic} off={MicOff} label="Mic" danger={!room.audioEnabled} />
+          <Ctrl active={room.videoEnabled} onClick={room.toggleVideo} on={VideoIcon} off={VideoOff} label="Camera" danger={!room.videoEnabled} />
+          <Ctrl active={room.screenSharing} onClick={room.toggleScreenShare} on={MonitorOff} off={Monitor} label="Share" highlight={room.screenSharing} />
+          <Ctrl active={annotating} onClick={() => setAnnotating((a) => !a)} on={PencilRuler} off={PencilRuler} label="Annotate" highlight={annotating} />
+          {isAgent && (room.recording === 'RECORDING'
+            ? <Ctrl active onClick={room.stopRecording} on={Square} off={Square} label="Stop rec" danger />
+            : <Ctrl active onClick={room.startRecording} on={Circle} off={Circle} label="Record" disabled={room.recording === 'PROCESSING'} />)}
+          <div className="mx-1 h-8 w-px shrink-0 bg-white/10" />
+          <PanelToggle icon={MessageSquare} active={panel === 'chat'} onClick={() => setPanel(panel === 'chat' ? null : 'chat')} badge={room.messages.length} />
+          <PanelToggle icon={Users} active={panel === 'people'} onClick={() => setPanel(panel === 'people' ? null : 'people')} badge={room.participants.filter((p) => p.status === 'CONNECTED').length} />
+          <PanelToggle icon={Sparkles} active={panel === 'ai'} onClick={() => setPanel(panel === 'ai' ? null : 'ai')} />
+          <div className="mx-1 h-8 w-px shrink-0 bg-white/10" />
+          {isAgent
+            ? <Button variant="destructive" className="shrink-0 whitespace-nowrap" onClick={room.endSession}><PhoneOff />End session</Button>
+            : <Button variant="destructive" className="shrink-0 whitespace-nowrap" onClick={() => { room.leave(); router.push('/'); }}><PhoneOff />Leave</Button>}
+        </div>
       </footer>
     </div>
   );
@@ -157,14 +168,14 @@ export function CallRoom({
 function Ctrl({ active, onClick, on: On, off: Off, label, danger, highlight, disabled }: any) {
   const Icon = active ? On : Off;
   return (
-    <button onClick={onClick} disabled={disabled} title={label} className={cn('flex h-12 w-12 items-center justify-center rounded-xl transition-all disabled:opacity-40', danger ? 'bg-destructive/90 hover:bg-destructive' : highlight ? 'bg-primary hover:bg-primary/90' : 'bg-white/10 hover:bg-white/20')}>
+    <button onClick={onClick} disabled={disabled} title={label} className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-all disabled:opacity-40', danger ? 'bg-destructive/90 hover:bg-destructive' : highlight ? 'bg-primary hover:bg-primary/90' : 'bg-white/10 hover:bg-white/20')}>
       <Icon className="h-5 w-5" />
     </button>
   );
 }
 function PanelToggle({ icon: Icon, active, onClick, badge }: any) {
   return (
-    <button onClick={onClick} className={cn('relative flex h-12 w-12 items-center justify-center rounded-xl transition-all', active ? 'bg-primary' : 'bg-white/10 hover:bg-white/20')}>
+    <button onClick={onClick} className={cn('relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition-all', active ? 'bg-primary' : 'bg-white/10 hover:bg-white/20')}>
       <Icon className="h-5 w-5" />
       {badge > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold">{badge}</span>}
     </button>
